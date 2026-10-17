@@ -16,9 +16,9 @@
   html, body { margin: 0; min-height: 100%; background: #0b6b3a; color: #fff;
     font-family: -apple-system, system-ui, sans-serif; touch-action: manipulation; }
   #bar { display: flex; justify-content: space-between; align-items: center; gap: 8px;
-    padding: calc(env(safe-area-inset-top) + 8px) 10px 10px; }
-  .btn { background: #ffffff26; color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-size: 16px; font-family: inherit; }
-  .btn:active { background: #ffffff44; }
+    padding: calc(env(safe-area-inset-top) + 26px) 10px 10px; }
+  .btn { background: #1f7a49; color: #fff; border: 0; border-radius: 10px; padding: 9px 14px; font-size: 16px; font-family: inherit; }
+  .btn:active { background: #2a9660; }
   #moves { font-size: 16px; opacity: .9; }
   #board { padding: 0 8px calc(env(safe-area-inset-bottom) + 30px); }
   .row { display: grid; grid-template-columns: repeat(7, var(--w)); gap: var(--g); justify-content: center; margin-bottom: 14px; align-items: start; }
@@ -34,18 +34,29 @@
   .ghost { position: fixed; z-index: 100; pointer-events: none; width: var(--w); filter: drop-shadow(0 6px 8px #0009); }
   .tl { position: absolute; left: 4px; top: 2px; font-size: calc(var(--w) * .3); line-height: 1.1; font-weight: 600; white-space: nowrap; }
   .ct { position: absolute; left: 0; right: 0; bottom: 4px; text-align: center; font-size: calc(var(--w) * .5); line-height: 1; }
-  #win { position: fixed; inset: 0; background: #000a; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 32px; text-align: center; z-index: 50; }
+  #win { position: fixed; top: -120px; bottom: -120px; left: 0; right: 0; padding: 120px 0; background: #000a; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 16px; font-size: 32px; text-align: center; z-index: 50; }
   #win.show { display: flex; }
   #win .btn { font-size: 20px; background: #ffd60a; color: #000; padding: 12px 24px; }
+  #menu { position: fixed; top: -120px; bottom: -120px; left: 0; right: 0; padding: 120px 0; background: #000b; display: none;
+    flex-direction: column; align-items: center; justify-content: center; gap: 14px; z-index: 60; text-align: center; }
+  #menu.show { display: flex; }
+  #menu .mt { font-size: 30px; margin-bottom: 6px; }
+  #menu .big { width: 270px; font-size: 20px; padding: 16px; background: #ffd60a; color: #000; }
+  html.dim, html.dim body { background: #042413; }
 </style>
 </head>
 <body>
 <div id="bar">
   <button class="btn" id="newBtn">Nová hra</button>
   <span id="moves">Tahy: 0</span>
+  <button class="btn" id="sndBtn">🔊</button>
   <button class="btn" id="undoBtn">↶ Zpět</button>
 </div>
 <div id="board"></div>
+<div id="menu"><div class="mt">Nová hra</div>
+  <button class="btn big" data-d="1">Klondike · 1 karta</button>
+  <button class="btn big" data-d="3">Klondike · 3 karty</button>
+  <button class="btn" id="menuX">Zrušit</button></div>
 <div id="win"><div>🎉 Vyhrál jsi!<br><small id="winMoves"></small></div><button class="btn" id="winBtn">Nová hra</button></div>
 
 <script>
@@ -53,15 +64,16 @@ const SUITS = ["♠", "♥", "♦", "♣"];
 const RANKS = ["", "A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"];
 const isRed = s => s === 1 || s === 2;
 let G, undo = [], sel = null;
+let busy = false, runId = 0;
 
-function newGame() {
+function newGame(draw) {
   const deck = [];
   for (let s = 0; s < 4; s++) for (let r = 1; r <= 13; r++) deck.push({ s, r, up: false });
   for (let i = deck.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
     [deck[i], deck[j]] = [deck[j], deck[i]];
   }
-  G = { stock: [], waste: [], found: [[], [], [], []], tab: [[], [], [], [], [], [], []], moves: 0 };
+  G = { stock: [], waste: [], found: [[], [], [], []], tab: [[], [], [], [], [], [], []], moves: 0, draw: draw || 1, fan: 1 };
   for (let c = 0; c < 7; c++) {
     for (let k = 0; k <= c; k++) {
       const card = deck.pop();
@@ -70,7 +82,8 @@ function newGame() {
     }
   }
   G.stock = deck;
-  undo = []; sel = null;
+  undo = []; sel = null; runId++; busy = false;
+  document.getElementById("win").classList.remove("show"); dim();
   save(); render();
 }
 
@@ -94,7 +107,7 @@ function removeCards(s) {
     G.tab[s.col].splice(s.idx);
     const t = G.tab[s.col];
     if (t.length && !t[t.length - 1].up) t[t.length - 1].up = true;
-  } else if (s.from === "waste") G.waste.pop();
+  } else if (s.from === "waste") { G.waste.pop(); G.fan = Math.max(1, (G.fan || 1) - 1); }
   else G.found[s.col].pop();
 }
 function tryMoveToTab(col) {
@@ -105,7 +118,7 @@ function tryMoveToTab(col) {
     const top = t[t.length - 1];
     if (!top.up || isRed(top.s) === isRed(c.s) || top.r !== c.r + 1) return false;
   }
-  snap(); removeCards(sel); t.push(...cards); G.moves++;
+  snap(); removeCards(sel); t.push(...cards); G.moves++; fx("move");
   return true;
 }
 function tryMoveToFound(s) {
@@ -114,24 +127,21 @@ function tryMoveToFound(s) {
   if (cards.length !== 1) return false;
   const c = cards[0], f = G.found[s];
   if (c.s !== s || c.r !== f.length + 1) return false;
-  snap(); removeCards(sel); f.push(c); G.moves++;
+  snap(); removeCards(sel); f.push(c); G.moves++; fx("found");
   return true;
 }
 
-function done() {
-  sel = null; save(); render();
-  if (G.found.every(f => f.length === 13)) {
-    document.getElementById("winMoves").textContent = "Tahů: " + G.moves;
-    document.getElementById("win").classList.add("show");
-  }
+function done(over) {
+  sel = null; save(); renderA(over);
+  if (!checkWin() && canAuto()) autoComplete();
 }
 
 function stockClick() {
   snap();
-  if (G.stock.length) { const c = G.stock.pop(); c.up = true; G.waste.push(c); }
-  else if (G.waste.length) { G.stock = G.waste.reverse().map(c => ({ ...c, up: false })); G.waste = []; }
+  if (G.stock.length) { let n = 0; while (n < (G.draw || 1) && G.stock.length) { const c = G.stock.pop(); c.up = true; G.waste.push(c); n++; } G.fan = n; }
+  else if (G.waste.length) { G.stock = G.waste.reverse().map(c => ({ ...c, up: false })); G.waste = []; G.fan = 1; }
   else { undo.pop(); return; }
-  G.moves++; done();
+  G.moves++; fx("draw"); done();
 }
 function wasteClick() {
   if (sel && sel.from === "waste") {
@@ -163,6 +173,7 @@ function tabClick(col, idx) {
 function el(cls, parent) { const d = document.createElement("div"); d.className = cls; if (parent) parent.appendChild(d); return d; }
 function cardEl(c, parent, selected) {
   const d = el("card " + (c.up ? (isRed(c.s) ? "red" : "") : "down") + (selected ? " sel" : ""), parent);
+  if (c.s !== undefined) d.dataset.id = c.s * 13 + c.r;
   if (c.up) {
     el("tl", d).textContent = RANKS[c.r] + SUITS[c.s];
     el("ct", d).textContent = SUITS[c.s];
@@ -182,13 +193,18 @@ function render() {
 
   const st = el("slot", top);
   st.onclick = stockClick;
-  if (G.stock.length) cardEl({ up: false }, st).style.top = "-1.5px"; else st.textContent = "↻";
+  if (G.stock.length) cardEl(G.stock[G.stock.length - 1], st).style.top = "-1.5px"; else st.textContent = "↻";
 
   const ws = el("slot", top);
   ws.onclick = wasteClick;
   if (G.waste.length) {
-    const d = cardEl(G.waste[G.waste.length - 1], ws, sel && sel.from === "waste");
-    d.style.top = "-1.5px"; tag(d, { from: "waste", col: 0, idx: 0 });
+    const n = Math.min(G.fan || 1, G.waste.length);
+    for (let i = n - 1; i >= 0; i--) {
+      const c = G.waste[G.waste.length - 1 - i], isTop = i === 0;
+      const d = cardEl(c, ws, isTop && sel && sel.from === "waste");
+      d.style.top = "-1.5px"; d.style.left = ((n - 1 - i) * Math.round(w * .28)) + "px";
+      if (isTop) tag(d, { from: "waste", col: 0, idx: 0 });
+    }
   }
 
   el("", top);
@@ -220,15 +236,115 @@ function render() {
     });
     c.style.height = (y - (arr[arr.length - 1].up ? offUp : offDown) + h) + "px";
   });
-  document.getElementById("moves").textContent = "Tahy: " + G.moves;
+  document.getElementById("moves").textContent = "Tahy: " + G.moves + ((G.draw || 1) === 3 ? " · 3 karty" : "");
 }
 
-document.getElementById("newBtn").onclick = () => { if (confirm("Začít novou hru?")) newGame(); };
-document.getElementById("winBtn").onclick = () => { document.getElementById("win").classList.remove("show"); newGame(); };
+document.getElementById("newBtn").onclick = openMenu;
+document.getElementById("winBtn").onclick = openMenu;
 document.getElementById("undoBtn").onclick = () => {
-  if (!undo.length) return;
-  G = JSON.parse(undo.pop()); sel = null; save(); render();
+  if (busy || !undo.length) return;
+  G = JSON.parse(undo.pop()); sel = null; save(); renderA();
 };
+
+// ---------- Menu nové hry ----------
+const menuEl = document.getElementById("menu");
+function dim() { document.documentElement.classList.toggle("dim", !!document.querySelector("#win.show, #menu.show")); }
+function openMenu() { menuEl.classList.add("show"); dim(); }
+function closeMenu() { menuEl.classList.remove("show"); dim(); }
+function lastDraw() { try { return +localStorage.getItem("sol-draw") || 1; } catch (e) { return 1; } }
+menuEl.addEventListener("click", e => {
+  const b = e.target.closest("button"); if (!b) return;
+  if (b.id === "menuX") return closeMenu();
+  const d = +b.dataset.d;
+  try { localStorage.setItem("sol-draw", d); } catch (x) {}
+  closeMenu(); newGame(d);
+});
+
+// ---------- Zvuk a vibrace ----------
+let sndOn = true, AC = null;
+try { sndOn = localStorage.getItem("sol-snd") !== "0"; } catch (e) {}
+const hapL = document.createElement("label");
+hapL.style.cssText = "position:fixed;left:-99px;top:-99px;opacity:0;pointer-events:none";
+const hapI = document.createElement("input"); hapI.type = "checkbox"; hapI.setAttribute("switch", "");
+hapL.appendChild(hapI); document.body.appendChild(hapL);
+
+function tone(f, d, type, v, t0) {
+  if (!sndOn) return;
+  try {
+    AC = AC || new (window.AudioContext || window.webkitAudioContext)();
+    if (AC.state === "suspended") AC.resume();
+    const o = AC.createOscillator(), g = AC.createGain(), t = AC.currentTime + (t0 || 0);
+    o.type = type; o.frequency.value = f;
+    g.gain.setValueAtTime(v, t); g.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(g); g.connect(AC.destination); o.start(t); o.stop(t + d + 0.02);
+  } catch (e) {}
+}
+function buzz(p) {
+  if (!sndOn) return;
+  try { if (navigator.vibrate) navigator.vibrate(p); else hapL.click(); } catch (e) {}
+}
+function fx(k) {
+  if (k === "move") { tone(520, .05, "triangle", .12); buzz(8); }
+  else if (k === "draw") { tone(380, .04, "triangle", .1); buzz(5); }
+  else if (k === "found") { tone(880, .09, "sine", .14); tone(1320, .12, "sine", .1, .07); buzz(15); }
+  else if (k === "bad") { tone(150, .14, "sawtooth", .08); buzz([25, 40, 25]); }
+  else if (k === "win") { [523, 659, 784, 1047].forEach((f, i) => tone(f, .25, "sine", .14, i * .13)); buzz([30, 50, 30, 50, 80]); }
+}
+const sndBtn = document.getElementById("sndBtn");
+sndBtn.textContent = sndOn ? "🔊" : "🔇";
+sndBtn.onclick = () => {
+  sndOn = !sndOn; sndBtn.textContent = sndOn ? "🔊" : "🔇";
+  try { localStorage.setItem("sol-snd", sndOn ? "1" : "0"); } catch (e) {}
+  fx("move");
+};
+
+// ---------- Animace přesunu karet ----------
+function capture() {
+  const f = {};
+  document.querySelectorAll("#board .card[data-id]").forEach(d => { const r = d.getBoundingClientRect(); f[d.dataset.id] = { x: r.left, y: r.top }; });
+  return f;
+}
+function renderA(over) {
+  const f = capture();
+  if (over) Object.assign(f, over);
+  render();
+  document.querySelectorAll("#board .card[data-id]").forEach(d => {
+    const o = f[d.dataset.id]; if (!o) return;
+    const r = d.getBoundingClientRect(), dx = o.x - r.left, dy = o.y - r.top;
+    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) return;
+    d.style.transition = "none"; d.style.transform = "translate(" + dx + "px," + dy + "px)"; d.style.zIndex = 20;
+    requestAnimationFrame(() => requestAnimationFrame(() => { d.style.transition = "transform .2s ease-out"; d.style.transform = ""; }));
+    setTimeout(() => { d.style.zIndex = ""; d.style.transition = ""; }, 260);
+  });
+}
+
+// ---------- Výhra a automatické dokončení ----------
+function checkWin() {
+  if (!G.found.every(f => f.length === 13)) return false;
+  document.getElementById("winMoves").textContent = "Tahů: " + G.moves;
+  document.getElementById("win").classList.add("show"); dim();
+  fx("win");
+  return true;
+}
+function canAuto() {
+  return !G.stock.length && !G.waste.length && G.tab.every(t => t.every(c => c.up));
+}
+function autoComplete() {
+  busy = true; const id = ++runId; snap();
+  (function step() {
+    if (id !== runId) return;
+    for (let c = 0; c < 7; c++) {
+      const t = G.tab[c], k = t[t.length - 1];
+      if (k && k.r === G.found[k.s].length + 1) {
+        t.pop(); G.found[k.s].push(k); G.moves++;
+        fx("found"); save(); renderA();
+        if (checkWin()) { busy = false; return; }
+        setTimeout(step, 110); return;
+      }
+    }
+    busy = false;
+  })();
+}
 
 // ---------- Přetahování ----------
 let drag = null, ghost = null, suppress = false, L = { w: 50, h: 70, offUp: 21 };
@@ -238,7 +354,7 @@ function tag(d, src) {
   d.addEventListener("pointerdown", ev => press(ev, src, d));
 }
 function press(ev, src, d) {
-  if (ev.button > 0) return;
+  if (ev.button > 0 || busy) return;
   const r = d.getBoundingClientRect();
   drag = { src, pid: ev.pointerId, x0: ev.clientX, y0: ev.clientY,
            ox: ev.clientX - r.left, oy: ev.clientY - r.top, active: false };
@@ -267,14 +383,15 @@ function endDrag(e, cancel) {
   const d = drag; drag = null;
   if (!d.active) return;               // jen klepnutí, vyřídí ho onclick
   suppress = true; setTimeout(() => { suppress = false; }, 80);
-  const gr = ghost.getBoundingClientRect();
+  const gr = ghost.getBoundingClientRect(), over = {};
+  ghost.querySelectorAll("[data-id]").forEach(g => { const r = g.getBoundingClientRect(); over[g.dataset.id] = { x: r.left, y: r.top }; });
   ghost.remove(); ghost = null;
   let ok = false;
   if (!cancel) {
     const t = findDrop(gr.left + L.w / 2, gr.top + L.h / 2);
-    if (t) { sel = d.src; ok = t.kind === "tab" ? tryMoveToTab(t.i) : tryMoveToFound(t.i); }
+    if (t) { sel = d.src; ok = t.kind === "tab" ? tryMoveToTab(t.i) : tryMoveToFound(t.i); if (!ok) fx("bad"); }
   }
-  if (ok) done(); else { sel = null; render(); }
+  if (ok) done(over); else { sel = null; render(); }
 }
 document.addEventListener("pointermove", e => {
   if (!drag || e.pointerId !== drag.pid) return;
@@ -288,12 +405,12 @@ document.addEventListener("pointermove", e => {
 document.addEventListener("pointerup", e => endDrag(e, false));
 document.addEventListener("pointercancel", e => endDrag(e, true));
 document.getElementById("board").addEventListener("click", e => {
-  if (suppress) { e.stopPropagation(); e.preventDefault(); }
+  if (suppress || busy) { e.stopPropagation(); e.preventDefault(); }
 }, true);
 
 window.addEventListener("resize", render);
 
-if (!load()) newGame(); else render();
+if (!load()) newGame(lastDraw()); else render();
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("sw.js");
 </script>
 </body>
